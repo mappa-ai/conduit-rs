@@ -5,166 +5,241 @@ use thiserror::Error;
 
 type BoxError = Box<dyn StdError + Send + Sync>;
 
+/// Result alias used by the Conduit Rust SDK.
 pub type Result<T> = std::result::Result<T, ConduitError>;
 
 #[derive(Debug, Error)]
+#[error("{message}")]
+/// Shared error context used by several SDK error variants.
+pub struct ErrorContext {
+    message: String,
+    code: String,
+    request_id: Option<String>,
+    #[source]
+    source: Option<BoxError>,
+}
+
+impl ErrorContext {
+    fn new(message: impl Into<String>, code: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: code.into(),
+            request_id: None,
+            source: None,
+        }
+    }
+
+    fn with_request_id(mut self, request_id: Option<String>) -> Self {
+        self.request_id = request_id;
+        self
+    }
+
+    fn with_source<E>(mut self, source: E) -> Self
+    where
+        E: StdError + Send + Sync + 'static,
+    {
+        self.source = Some(Box::new(source));
+        self
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("{message}")]
+/// Source-specific context used by upload and remote fetch errors.
+pub struct SourceContext {
+    message: String,
+    code: String,
+    request_id: Option<String>,
+    url: Option<String>,
+    status: Option<u16>,
+    #[source]
+    source: Option<BoxError>,
+}
+
+impl SourceContext {
+    fn new(message: impl Into<String>, code: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: code.into(),
+            request_id: None,
+            url: None,
+            status: None,
+            source: None,
+        }
+    }
+
+    fn with_remote(mut self, url: Option<String>, status: Option<u16>) -> Self {
+        self.url = url;
+        self.status = status;
+        self
+    }
+
+    fn with_source<E>(mut self, source: E) -> Self
+    where
+        E: StdError + Send + Sync + 'static,
+    {
+        self.source = Some(Box::new(source));
+        self
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("{message}")]
+/// API error context shared by auth, validation, and generic API failures.
+pub struct ApiContext {
+    message: String,
+    code: String,
+    request_id: Option<String>,
+    status: u16,
+    details: Option<Box<Value>>,
+}
+
+impl ApiContext {
+    fn new(
+        status: u16,
+        request_id: Option<String>,
+        message: impl Into<String>,
+        code: impl Into<String>,
+        details: Option<Value>,
+    ) -> Self {
+        Self {
+            message: message.into(),
+            code: code.into(),
+            request_id,
+            status,
+            details: details.map(Box::new),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("{message}")]
+/// Rate-limit error context.
+pub struct RateLimitContext {
+    message: String,
+    code: String,
+    request_id: Option<String>,
+    status: u16,
+    details: Option<Box<Value>>,
+    retry_after: Option<Duration>,
+}
+
+#[derive(Debug, Error)]
+#[error("{message}")]
+/// Insufficient credits error context.
+pub struct CreditsContext {
+    message: String,
+    code: String,
+    request_id: Option<String>,
+    status: u16,
+    details: Option<Box<Value>>,
+    required: f64,
+    available: f64,
+}
+
+#[derive(Debug, Error)]
+#[error("{message}")]
+/// Job failure or cancellation context.
+pub struct JobContext {
+    message: String,
+    code: String,
+    request_id: Option<String>,
+    job_id: String,
+}
+
+#[derive(Debug, Error)]
+#[error("{message}")]
+/// Stream polling error context.
+pub struct StreamContext {
+    message: String,
+    code: String,
+    request_id: Option<String>,
+    job_id: Option<String>,
+    last_event_id: Option<String>,
+    retry_count: usize,
+    #[source]
+    source: Option<BoxError>,
+}
+
+impl StreamContext {
+    fn new(message: impl Into<String>, job_id: Option<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: "stream_error".into(),
+            request_id: None,
+            job_id,
+            last_event_id: None,
+            retry_count: 0,
+            source: None,
+        }
+    }
+
+    fn with_source<E>(mut self, source: E) -> Self
+    where
+        E: StdError + Send + Sync + 'static,
+    {
+        self.source = Some(Box::new(source));
+        self
+    }
+}
+
+#[derive(Debug, Error)]
+/// Typed error returned by all public SDK operations.
 pub enum ConduitError {
-    #[error("{message}")]
-    Base {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    Initialization {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    UnsupportedRuntime {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    WebhookVerification {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    InvalidSource {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        url: Option<String>,
-        status: Option<u16>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    RemoteFetch {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        url: Option<String>,
-        status: Option<u16>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    RemoteFetchTimeout {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        url: Option<String>,
-        status: Option<u16>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    RemoteFetchTooLarge {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        url: Option<String>,
-        status: Option<u16>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    Api {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        status: u16,
-        details: Option<Value>,
-    },
-    #[error("{message}")]
-    Auth {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        status: u16,
-        details: Option<Value>,
-    },
-    #[error("{message}")]
-    Validation {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        status: u16,
-        details: Option<Value>,
-    },
-    #[error("{message}")]
-    RateLimit {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        status: u16,
-        details: Option<Value>,
-        retry_after: Option<Duration>,
-    },
-    #[error("{message}")]
-    InsufficientCredits {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        status: u16,
-        details: Option<Value>,
-        required: f64,
-        available: f64,
-    },
-    #[error("{message}")]
-    JobFailed {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        job_id: String,
-    },
-    #[error("{message}")]
-    JobCanceled {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        job_id: String,
-    },
-    #[error("{message}")]
-    Timeout {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    RequestAborted {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        #[source]
-        source: Option<BoxError>,
-    },
-    #[error("{message}")]
-    Stream {
-        message: String,
-        code: String,
-        request_id: Option<String>,
-        job_id: Option<String>,
-        last_event_id: Option<String>,
-        retry_count: usize,
-        #[source]
-        source: Option<BoxError>,
-    },
+    #[error(transparent)]
+    /// Generic SDK error.
+    Base(Box<ErrorContext>),
+    #[error(transparent)]
+    /// Client initialization or configuration error.
+    Initialization(Box<ErrorContext>),
+    #[error(transparent)]
+    /// Unsupported runtime capability error.
+    UnsupportedRuntime(Box<ErrorContext>),
+    #[error(transparent)]
+    /// Webhook signature verification error.
+    WebhookVerification(Box<ErrorContext>),
+    #[error(transparent)]
+    /// Invalid local source configuration error.
+    InvalidSource(Box<SourceContext>),
+    #[error(transparent)]
+    /// Remote source fetch error.
+    RemoteFetch(Box<SourceContext>),
+    #[error(transparent)]
+    /// Remote source fetch timeout error.
+    RemoteFetchTimeout(Box<SourceContext>),
+    #[error(transparent)]
+    /// Remote source exceeded the upload size limit.
+    RemoteFetchTooLarge(Box<SourceContext>),
+    #[error(transparent)]
+    /// Generic API error.
+    Api(Box<ApiContext>),
+    #[error(transparent)]
+    /// Authentication or authorization API error.
+    Auth(Box<ApiContext>),
+    #[error(transparent)]
+    /// API validation error.
+    Validation(Box<ApiContext>),
+    #[error(transparent)]
+    /// API rate limit error.
+    RateLimit(Box<RateLimitContext>),
+    #[error(transparent)]
+    /// API insufficient credits error.
+    InsufficientCredits(Box<CreditsContext>),
+    #[error(transparent)]
+    /// Terminal job failure error.
+    JobFailed(Box<JobContext>),
+    #[error(transparent)]
+    /// Terminal job cancellation error.
+    JobCanceled(Box<JobContext>),
+    #[error(transparent)]
+    /// SDK-enforced timeout error.
+    Timeout(Box<ErrorContext>),
+    #[error(transparent)]
+    /// Caller-initiated request cancellation error.
+    RequestAborted(Box<ErrorContext>),
+    #[error(transparent)]
+    /// Polling or streaming helper error.
+    Stream(Box<StreamContext>),
 }
 
 impl ConduitError {
@@ -173,221 +248,97 @@ impl ConduitError {
         E: StdError + Send + Sync + 'static,
     {
         match self {
-            Self::Base {
-                message,
-                code,
-                request_id,
-                ..
-            } => Self::Base {
-                message,
-                code,
-                request_id,
-                source: Some(Box::new(source)),
-            },
-            Self::Initialization {
-                message,
-                code,
-                request_id,
-                ..
-            } => Self::Initialization {
-                message,
-                code,
-                request_id,
-                source: Some(Box::new(source)),
-            },
-            Self::UnsupportedRuntime {
-                message,
-                code,
-                request_id,
-                ..
-            } => Self::UnsupportedRuntime {
-                message,
-                code,
-                request_id,
-                source: Some(Box::new(source)),
-            },
-            Self::WebhookVerification {
-                message,
-                code,
-                request_id,
-                ..
-            } => Self::WebhookVerification {
-                message,
-                code,
-                request_id,
-                source: Some(Box::new(source)),
-            },
-            Self::InvalidSource {
-                message,
-                code,
-                request_id,
-                url,
-                status,
-                ..
-            } => Self::InvalidSource {
-                message,
-                code,
-                request_id,
-                url,
-                status,
-                source: Some(Box::new(source)),
-            },
-            Self::RemoteFetch {
-                message,
-                code,
-                request_id,
-                url,
-                status,
-                ..
-            } => Self::RemoteFetch {
-                message,
-                code,
-                request_id,
-                url,
-                status,
-                source: Some(Box::new(source)),
-            },
-            Self::RemoteFetchTimeout {
-                message,
-                code,
-                request_id,
-                url,
-                status,
-                ..
-            } => Self::RemoteFetchTimeout {
-                message,
-                code,
-                request_id,
-                url,
-                status,
-                source: Some(Box::new(source)),
-            },
-            Self::RemoteFetchTooLarge {
-                message,
-                code,
-                request_id,
-                url,
-                status,
-                ..
-            } => Self::RemoteFetchTooLarge {
-                message,
-                code,
-                request_id,
-                url,
-                status,
-                source: Some(Box::new(source)),
-            },
-            Self::Timeout {
-                message,
-                code,
-                request_id,
-                ..
-            } => Self::Timeout {
-                message,
-                code,
-                request_id,
-                source: Some(Box::new(source)),
-            },
-            Self::RequestAborted {
-                message,
-                code,
-                request_id,
-                ..
-            } => Self::RequestAborted {
-                message,
-                code,
-                request_id,
-                source: Some(Box::new(source)),
-            },
-            Self::Stream {
-                message,
-                code,
-                request_id,
-                job_id,
-                last_event_id,
-                retry_count,
-                ..
-            } => Self::Stream {
-                message,
-                code,
-                request_id,
-                job_id,
-                last_event_id,
-                retry_count,
-                source: Some(Box::new(source)),
-            },
+            Self::Base(context) => Self::Base(Box::new(context.with_source(source))),
+            Self::Initialization(context) => {
+                Self::Initialization(Box::new(context.with_source(source)))
+            }
+            Self::UnsupportedRuntime(context) => {
+                Self::UnsupportedRuntime(Box::new(context.with_source(source)))
+            }
+            Self::WebhookVerification(context) => {
+                Self::WebhookVerification(Box::new(context.with_source(source)))
+            }
+            Self::InvalidSource(context) => {
+                Self::InvalidSource(Box::new(context.with_source(source)))
+            }
+            Self::RemoteFetch(context) => Self::RemoteFetch(Box::new(context.with_source(source))),
+            Self::RemoteFetchTimeout(context) => {
+                Self::RemoteFetchTimeout(Box::new(context.with_source(source)))
+            }
+            Self::RemoteFetchTooLarge(context) => {
+                Self::RemoteFetchTooLarge(Box::new(context.with_source(source)))
+            }
+            Self::Timeout(context) => Self::Timeout(Box::new(context.with_source(source))),
+            Self::RequestAborted(context) => {
+                Self::RequestAborted(Box::new(context.with_source(source)))
+            }
+            Self::Stream(context) => Self::Stream(Box::new(context.with_source(source))),
             other => other,
         }
     }
 
+    /// Returns the stable error code associated with this failure.
     pub fn code(&self) -> &str {
         match self {
-            Self::Base { code, .. }
-            | Self::Initialization { code, .. }
-            | Self::UnsupportedRuntime { code, .. }
-            | Self::WebhookVerification { code, .. }
-            | Self::InvalidSource { code, .. }
-            | Self::RemoteFetch { code, .. }
-            | Self::RemoteFetchTimeout { code, .. }
-            | Self::RemoteFetchTooLarge { code, .. }
-            | Self::Api { code, .. }
-            | Self::Auth { code, .. }
-            | Self::Validation { code, .. }
-            | Self::RateLimit { code, .. }
-            | Self::InsufficientCredits { code, .. }
-            | Self::JobFailed { code, .. }
-            | Self::JobCanceled { code, .. }
-            | Self::Timeout { code, .. }
-            | Self::RequestAborted { code, .. }
-            | Self::Stream { code, .. } => code,
+            Self::Base(context)
+            | Self::Initialization(context)
+            | Self::UnsupportedRuntime(context)
+            | Self::WebhookVerification(context)
+            | Self::Timeout(context)
+            | Self::RequestAborted(context) => &context.code,
+            Self::InvalidSource(context)
+            | Self::RemoteFetch(context)
+            | Self::RemoteFetchTimeout(context)
+            | Self::RemoteFetchTooLarge(context) => &context.code,
+            Self::Api(context) | Self::Auth(context) | Self::Validation(context) => &context.code,
+            Self::RateLimit(context) => &context.code,
+            Self::InsufficientCredits(context) => &context.code,
+            Self::JobFailed(context) | Self::JobCanceled(context) => &context.code,
+            Self::Stream(context) => &context.code,
         }
     }
 
+    /// Returns the API request identifier, when available.
     pub fn request_id(&self) -> Option<&str> {
         match self {
-            Self::Base { request_id, .. }
-            | Self::Initialization { request_id, .. }
-            | Self::UnsupportedRuntime { request_id, .. }
-            | Self::WebhookVerification { request_id, .. }
-            | Self::InvalidSource { request_id, .. }
-            | Self::RemoteFetch { request_id, .. }
-            | Self::RemoteFetchTimeout { request_id, .. }
-            | Self::RemoteFetchTooLarge { request_id, .. }
-            | Self::Api { request_id, .. }
-            | Self::Auth { request_id, .. }
-            | Self::Validation { request_id, .. }
-            | Self::RateLimit { request_id, .. }
-            | Self::InsufficientCredits { request_id, .. }
-            | Self::JobFailed { request_id, .. }
-            | Self::JobCanceled { request_id, .. }
-            | Self::Timeout { request_id, .. }
-            | Self::RequestAborted { request_id, .. }
-            | Self::Stream { request_id, .. } => request_id.as_deref(),
+            Self::Base(context)
+            | Self::Initialization(context)
+            | Self::UnsupportedRuntime(context)
+            | Self::WebhookVerification(context)
+            | Self::Timeout(context)
+            | Self::RequestAborted(context) => context.request_id.as_deref(),
+            Self::InvalidSource(context)
+            | Self::RemoteFetch(context)
+            | Self::RemoteFetchTimeout(context)
+            | Self::RemoteFetchTooLarge(context) => context.request_id.as_deref(),
+            Self::Api(context) | Self::Auth(context) | Self::Validation(context) => {
+                context.request_id.as_deref()
+            }
+            Self::RateLimit(context) => context.request_id.as_deref(),
+            Self::InsufficientCredits(context) => context.request_id.as_deref(),
+            Self::JobFailed(context) | Self::JobCanceled(context) => context.request_id.as_deref(),
+            Self::Stream(context) => context.request_id.as_deref(),
         }
     }
 
+    /// Returns the HTTP status code for API-derived failures.
     pub fn status(&self) -> Option<u16> {
         match self {
-            Self::InvalidSource { status, .. }
-            | Self::RemoteFetch { status, .. }
-            | Self::RemoteFetchTimeout { status, .. }
-            | Self::RemoteFetchTooLarge { status, .. } => *status,
-            Self::Api { status, .. }
-            | Self::Auth { status, .. }
-            | Self::Validation { status, .. }
-            | Self::RateLimit { status, .. }
-            | Self::InsufficientCredits { status, .. } => Some(*status),
+            Self::InvalidSource(context)
+            | Self::RemoteFetch(context)
+            | Self::RemoteFetchTimeout(context)
+            | Self::RemoteFetchTooLarge(context) => context.status,
+            Self::Api(context) | Self::Auth(context) | Self::Validation(context) => {
+                Some(context.status)
+            }
+            Self::RateLimit(context) => Some(context.status),
+            Self::InsufficientCredits(context) => Some(context.status),
             _ => None,
         }
     }
 
     pub(crate) fn base(message: impl Into<String>, code: impl Into<String>) -> Self {
-        Self::Base {
-            message: message.into(),
-            code: code.into(),
-            request_id: None,
-            source: None,
-        }
+        Self::Base(Box::new(ErrorContext::new(message, code)))
     }
 
     pub(crate) fn invalid_request(message: impl Into<String>) -> Self {
@@ -398,48 +349,25 @@ impl ConduitError {
         Self::base(message, "invalid_response")
     }
 
+    /// Creates an error used when a webhook payload is malformed after signature verification.
     pub fn invalid_webhook_payload(message: impl Into<String>) -> Self {
         Self::base(message, "invalid_webhook_payload")
     }
 
     pub(crate) fn initialization(message: impl Into<String>, code: impl Into<String>) -> Self {
-        Self::Initialization {
-            message: message.into(),
-            code: code.into(),
-            request_id: None,
-            source: None,
-        }
+        Self::Initialization(Box::new(ErrorContext::new(message, code)))
     }
 
     pub(crate) fn webhook(message: impl Into<String>, code: impl Into<String>) -> Self {
-        Self::WebhookVerification {
-            message: message.into(),
-            code: code.into(),
-            request_id: None,
-            source: None,
-        }
+        Self::WebhookVerification(Box::new(ErrorContext::new(message, code)))
     }
 
     pub(crate) fn invalid_source(message: impl Into<String>) -> Self {
-        Self::InvalidSource {
-            message: message.into(),
-            code: "invalid_source".into(),
-            request_id: None,
-            url: None,
-            status: None,
-            source: None,
-        }
+        Self::InvalidSource(Box::new(SourceContext::new(message, "invalid_source")))
     }
 
     pub(crate) fn source_too_large(message: impl Into<String>) -> Self {
-        Self::InvalidSource {
-            message: message.into(),
-            code: "source_too_large".into(),
-            request_id: None,
-            url: None,
-            status: None,
-            source: None,
-        }
+        Self::InvalidSource(Box::new(SourceContext::new(message, "source_too_large")))
     }
 
     pub(crate) fn remote_fetch(
@@ -448,36 +376,23 @@ impl ConduitError {
         url: Option<String>,
         status: Option<u16>,
     ) -> Self {
-        Self::RemoteFetch {
-            message: message.into(),
-            code: code.into(),
-            request_id: None,
-            url,
-            status,
-            source: None,
-        }
+        Self::RemoteFetch(Box::new(
+            SourceContext::new(message, code).with_remote(url, status),
+        ))
     }
 
     pub(crate) fn remote_fetch_timeout(url: Option<String>, status: Option<u16>) -> Self {
-        Self::RemoteFetchTimeout {
-            message: "remote fetch timed out".into(),
-            code: "remote_fetch_timeout".into(),
-            request_id: None,
-            url,
-            status,
-            source: None,
-        }
+        Self::RemoteFetchTimeout(Box::new(
+            SourceContext::new("remote fetch timed out", "remote_fetch_timeout")
+                .with_remote(url, status),
+        ))
     }
 
     pub(crate) fn remote_fetch_too_large(url: Option<String>, status: Option<u16>) -> Self {
-        Self::RemoteFetchTooLarge {
-            message: "source.url exceeds upload size limit".into(),
-            code: "source_too_large".into(),
-            request_id: None,
-            url,
-            status,
-            source: None,
-        }
+        Self::RemoteFetchTooLarge(Box::new(
+            SourceContext::new("source.url exceeds upload size limit", "source_too_large")
+                .with_remote(url, status),
+        ))
     }
 
     pub(crate) fn api(
@@ -491,47 +406,35 @@ impl ConduitError {
         let message = message.into();
         let code = code.into();
         match status {
-            401 | 403 => Self::Auth {
-                message,
-                code,
-                request_id,
-                status,
-                details,
-            },
+            401 | 403 => Self::Auth(Box::new(ApiContext::new(
+                status, request_id, message, code, details,
+            ))),
             402 => {
                 let (required, available) = read_credit_values(details.as_ref());
-                Self::InsufficientCredits {
+                Self::InsufficientCredits(Box::new(CreditsContext {
                     message,
                     code,
                     request_id,
                     status,
-                    details,
+                    details: details.map(Box::new),
                     required,
                     available,
-                }
+                }))
             }
-            422 => Self::Validation {
+            422 => Self::Validation(Box::new(ApiContext::new(
+                status, request_id, message, code, details,
+            ))),
+            429 => Self::RateLimit(Box::new(RateLimitContext {
                 message,
                 code,
                 request_id,
                 status,
-                details,
-            },
-            429 => Self::RateLimit {
-                message,
-                code,
-                request_id,
-                status,
-                details,
+                details: details.map(Box::new),
                 retry_after,
-            },
-            _ => Self::Api {
-                message,
-                code,
-                request_id,
-                status,
-                details,
-            },
+            })),
+            _ => Self::Api(Box::new(ApiContext::new(
+                status, request_id, message, code, details,
+            ))),
         }
     }
 
@@ -541,53 +444,61 @@ impl ConduitError {
         code: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
-        Self::JobFailed {
+        Self::JobFailed(Box::new(JobContext {
             message: message.into(),
             code: code.into(),
             request_id,
             job_id: job_id.into(),
-        }
+        }))
     }
 
     pub(crate) fn job_canceled(job_id: impl Into<String>, request_id: Option<String>) -> Self {
         let job_id = job_id.into();
-        Self::JobCanceled {
+        Self::JobCanceled(Box::new(JobContext {
             message: format!("job {job_id} canceled"),
             code: "job_canceled".into(),
             request_id,
             job_id,
-        }
+        }))
     }
 
     pub(crate) fn timeout(message: impl Into<String>, request_id: Option<String>) -> Self {
-        Self::Timeout {
-            message: message.into(),
-            code: "timeout".into(),
-            request_id,
-            source: None,
-        }
+        Self::Timeout(Box::new(
+            ErrorContext::new(message, "timeout").with_request_id(request_id),
+        ))
     }
 
     pub(crate) fn request_aborted(request_id: Option<String>) -> Self {
-        Self::RequestAborted {
-            message: "request aborted by caller".into(),
-            code: "request_aborted".into(),
-            request_id,
-            source: None,
-        }
+        Self::RequestAborted(Box::new(
+            ErrorContext::new("request aborted by caller", "request_aborted")
+                .with_request_id(request_id),
+        ))
     }
 
     pub(crate) fn stream(message: impl Into<String>, job_id: Option<String>) -> Self {
-        Self::Stream {
-            message: message.into(),
-            code: "stream_error".into(),
-            request_id: None,
-            job_id,
-            last_event_id: None,
-            retry_count: 0,
-            source: None,
-        }
+        Self::Stream(Box::new(StreamContext::new(message, job_id)))
     }
+}
+
+pub(crate) fn rate_limit_retry_after(error: &ConduitError) -> Option<Duration> {
+    let ConduitError::RateLimit(context) = error else {
+        return None;
+    };
+    context.retry_after
+}
+
+pub(crate) fn is_retryable_api_error(error: &ConduitError) -> bool {
+    let ConduitError::Api(context) = error else {
+        return false;
+    };
+    context.status >= 500
+}
+
+pub(crate) fn is_transport_error(error: &ConduitError) -> bool {
+    let ConduitError::Base(context) = error else {
+        return false;
+    };
+    context.code == "transport_error"
 }
 
 fn read_credit_values(details: Option<&Value>) -> (f64, f64) {

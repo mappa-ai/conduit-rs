@@ -1,18 +1,146 @@
+//! Webhook verification and typed event parsing.
+
 use crate::error::{ConduitError, Result};
-use crate::model::{WebhookEvent, parse_webhook_event};
-use hex::encode as hex_encode;
+use crate::model::JobStatus;
 use hmac::{Hmac, Mac};
 use http::HeaderMap;
+use serde::Deserialize;
+use serde_json::Value;
 use sha2::Sha256;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 type HmacSha256 = Hmac<Sha256>;
 
+const DEFAULT_TOLERANCE: Duration = Duration::from_secs(300);
+
+#[derive(Debug, Clone)]
+/// Structured failure payload carried by `*.failed` webhook events.
+pub struct WebhookFailure {
+    /// Stable error code.
+    pub code: String,
+    /// Human-readable failure message.
+    pub message: String,
+}
+
+#[derive(Debug, Clone)]
+/// Parsed payload for a `report.completed` webhook event.
+pub struct ReportCompletedEvent {
+    /// Stable webhook event identifier.
+    pub id: String,
+    /// Event creation time from the webhook envelope.
+    pub created_at: OffsetDateTime,
+    /// Duplicate event timestamp retained for compatibility with webhook processors.
+    pub timestamp: OffsetDateTime,
+    /// Completed job identifier.
+    pub job_id: String,
+    /// Completed report identifier.
+    pub report_id: String,
+    /// Terminal job status.
+    pub status: JobStatus,
+}
+
+#[derive(Debug, Clone)]
+/// Parsed payload for a `report.failed` webhook event.
+pub struct ReportFailedEvent {
+    /// Stable webhook event identifier.
+    pub id: String,
+    /// Event creation time from the webhook envelope.
+    pub created_at: OffsetDateTime,
+    /// Duplicate event timestamp retained for compatibility with webhook processors.
+    pub timestamp: OffsetDateTime,
+    /// Failed job identifier.
+    pub job_id: String,
+    /// Terminal job status.
+    pub status: JobStatus,
+    /// Structured failure payload.
+    pub error: WebhookFailure,
+}
+
+#[derive(Debug, Clone)]
+/// Parsed payload for a `matching.completed` webhook event.
+pub struct MatchingCompletedEvent {
+    /// Stable webhook event identifier.
+    pub id: String,
+    /// Event creation time from the webhook envelope.
+    pub created_at: OffsetDateTime,
+    /// Duplicate event timestamp retained for compatibility with webhook processors.
+    pub timestamp: OffsetDateTime,
+    /// Completed job identifier.
+    pub job_id: String,
+    /// Completed matching result identifier.
+    pub matching_id: String,
+    /// Terminal job status.
+    pub status: JobStatus,
+}
+
+#[derive(Debug, Clone)]
+/// Parsed payload for a `matching.failed` webhook event.
+pub struct MatchingFailedEvent {
+    /// Stable webhook event identifier.
+    pub id: String,
+    /// Event creation time from the webhook envelope.
+    pub created_at: OffsetDateTime,
+    /// Duplicate event timestamp retained for compatibility with webhook processors.
+    pub timestamp: OffsetDateTime,
+    /// Failed job identifier.
+    pub job_id: String,
+    /// Terminal job status.
+    pub status: JobStatus,
+    /// Structured failure payload.
+    pub error: WebhookFailure,
+}
+
+#[derive(Debug, Clone)]
+/// Parsed payload for an unknown future webhook event type.
+pub struct UnknownWebhookEvent {
+    /// Stable webhook event identifier.
+    pub id: String,
+    /// Event type string preserved from the webhook envelope.
+    pub event_type: String,
+    /// Event creation time from the webhook envelope.
+    pub created_at: OffsetDateTime,
+    /// Duplicate event timestamp retained for compatibility with webhook processors.
+    pub timestamp: OffsetDateTime,
+    /// Opaque event payload preserved as JSON.
+    pub data: Value,
+}
+
+#[derive(Debug, Clone)]
+/// Typed webhook event returned by [`WebhooksResource::parse_event`].
+pub enum WebhookEvent {
+    /// `report.completed`
+    ReportCompleted(ReportCompletedEvent),
+    /// `report.failed`
+    ReportFailed(ReportFailedEvent),
+    /// `matching.completed`
+    MatchingCompleted(MatchingCompletedEvent),
+    /// `matching.failed`
+    MatchingFailed(MatchingFailedEvent),
+    /// Any future event type not yet modeled by this SDK version.
+    Unknown(UnknownWebhookEvent),
+}
+
 #[derive(Debug, Clone, Default)]
+/// Webhook signature verification and event parsing helpers.
 pub struct WebhooksResource;
 
 impl WebhooksResource {
+    /// Verifies a webhook signature using the default five-minute tolerance window.
+    ///
+    /// Pass the exact raw request body. Parsed JSON bodies will fail verification.
     pub fn verify_signature(
+        &self,
+        payload: &[u8],
+        headers: &HeaderMap,
+        secret: &str,
+    ) -> Result<()> {
+        self.verify_signature_with_tolerance(payload, headers, secret, DEFAULT_TOLERANCE)
+    }
+
+    /// Verifies a webhook signature using a custom tolerance window.
+    pub fn verify_signature_with_tolerance(
         &self,
         payload: &[u8],
         headers: &HeaderMap,
@@ -20,7 +148,7 @@ impl WebhooksResource {
         tolerance: Duration,
     ) -> Result<()> {
         let tolerance = if tolerance.is_zero() {
-            Duration::from_secs(300)
+            DEFAULT_TOLERANCE
         } else {
             tolerance
         };
@@ -66,29 +194,103 @@ impl WebhooksResource {
         mac.update(timestamp.to_string().as_bytes());
         mac.update(b".");
         mac.update(payload);
-        let expected = hex_encode(mac.finalize().into_bytes());
-        if expected.as_bytes() != signature.as_bytes() {
-            return Err(ConduitError::webhook(
-                "invalid signature",
-                "webhook_signature_invalid",
-            ));
-        }
-        Ok(())
+        mac.verify_slice(&signature)
+            .map_err(|_| ConduitError::webhook("invalid signature", "webhook_signature_invalid"))
     }
 
+    /// Parses a verified webhook payload into a typed [`WebhookEvent`].
+    ///
+    /// Unknown future event types are preserved as [`WebhookEvent::Unknown`].
     pub fn parse_event(&self, payload: &[u8]) -> Result<WebhookEvent> {
-        let event = parse_webhook_event(payload)?;
-        match event.r#type.as_str() {
-            "report.completed" => validate_completed_data(&event.data, "reportId")?,
-            "matching.completed" => validate_completed_data(&event.data, "matchingId")?,
-            "report.failed" | "matching.failed" => validate_failed_data(&event.data)?,
-            _ => {}
+        let envelope: WebhookEnvelope = serde_json::from_slice(payload).map_err(|error| {
+            ConduitError::invalid_webhook_payload("invalid webhook payload: invalid JSON")
+                .with_source(error)
+        })?;
+
+        let id = non_empty(&envelope.id, "webhook.id")?;
+        let created_at = webhook_datetime(&envelope.created_at, "webhook.createdAt")?;
+        let timestamp = webhook_datetime(&envelope.timestamp, "webhook.timestamp")?;
+
+        match envelope.kind.as_str() {
+            "report.completed" => {
+                let payload = parse_completed_payload(envelope.data, "reportId")?;
+                Ok(WebhookEvent::ReportCompleted(ReportCompletedEvent {
+                    id,
+                    created_at,
+                    timestamp,
+                    job_id: payload.job_id,
+                    report_id: payload.resource_id,
+                    status: payload.status,
+                }))
+            }
+            "matching.completed" => {
+                let payload = parse_completed_payload(envelope.data, "matchingId")?;
+                Ok(WebhookEvent::MatchingCompleted(MatchingCompletedEvent {
+                    id,
+                    created_at,
+                    timestamp,
+                    job_id: payload.job_id,
+                    matching_id: payload.resource_id,
+                    status: payload.status,
+                }))
+            }
+            "report.failed" => {
+                let payload = parse_failed_payload(envelope.data)?;
+                Ok(WebhookEvent::ReportFailed(ReportFailedEvent {
+                    id,
+                    created_at,
+                    timestamp,
+                    job_id: payload.job_id,
+                    status: payload.status,
+                    error: payload.error,
+                }))
+            }
+            "matching.failed" => {
+                let payload = parse_failed_payload(envelope.data)?;
+                Ok(WebhookEvent::MatchingFailed(MatchingFailedEvent {
+                    id,
+                    created_at,
+                    timestamp,
+                    job_id: payload.job_id,
+                    status: payload.status,
+                    error: payload.error,
+                }))
+            }
+            _ => Ok(WebhookEvent::Unknown(UnknownWebhookEvent {
+                id,
+                event_type: non_empty(&envelope.kind, "webhook.type")?,
+                created_at,
+                timestamp,
+                data: envelope.data,
+            })),
         }
-        Ok(event)
     }
 }
 
-fn parse_signature_header(value: &str) -> Result<(i64, String)> {
+#[derive(Debug, Deserialize)]
+struct WebhookEnvelope {
+    id: String,
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    timestamp: String,
+    data: Value,
+}
+
+struct CompletedPayload {
+    job_id: String,
+    resource_id: String,
+    status: JobStatus,
+}
+
+struct FailedPayload {
+    job_id: String,
+    status: JobStatus,
+    error: WebhookFailure,
+}
+
+fn parse_signature_header(value: &str) -> Result<(i64, Vec<u8>)> {
     let mut timestamp = None;
     let mut signature = None;
     for part in value.split(',') {
@@ -116,7 +318,15 @@ fn parse_signature_header(value: &str) -> Result<(i64, String)> {
                     .with_source(error)
                 })?)
             }
-            "v1" if signature.is_none() => signature = Some(raw_value.to_string()),
+            "v1" if signature.is_none() => {
+                signature = Some(hex::decode(raw_value).map_err(|error| {
+                    ConduitError::webhook(
+                        "malformed conduit-signature header",
+                        "webhook_signature_invalid",
+                    )
+                    .with_source(error)
+                })?)
+            }
             _ => {
                 return Err(ConduitError::webhook(
                     "malformed conduit-signature header",
@@ -134,83 +344,91 @@ fn parse_signature_header(value: &str) -> Result<(i64, String)> {
     }
 }
 
-fn validate_completed_data(data: &serde_json::Value, resource_key: &str) -> Result<()> {
+fn parse_completed_payload(data: Value, resource_key: &str) -> Result<CompletedPayload> {
     let object = data.as_object().ok_or_else(|| {
         ConduitError::invalid_webhook_payload("invalid webhook payload: data must be an object")
     })?;
-    let job_id = object
-        .get("jobId")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    if job_id.trim().is_empty() {
-        return Err(ConduitError::invalid_webhook_payload(
-            "webhook.data.jobId must be a non-empty string",
-        ));
-    }
-    let resource_id = object
-        .get(resource_key)
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    if resource_id.trim().is_empty() {
-        return Err(ConduitError::invalid_webhook_payload(format!(
-            "webhook.data.{resource_key} must be a non-empty string"
-        )));
-    }
-    if object.get("status").and_then(serde_json::Value::as_str) != Some("succeeded") {
-        return Err(ConduitError::invalid_webhook_payload(
-            "invalid webhook payload: status must be succeeded",
-        ));
-    }
-    Ok(())
+    let job_id = required_value(object.get("jobId"), "webhook.data.jobId")?;
+    let resource_id = required_value(
+        object.get(resource_key),
+        &format!("webhook.data.{resource_key}"),
+    )?;
+    let status = parse_webhook_status(object.get("status"), JobStatus::Succeeded, "succeeded")?;
+    Ok(CompletedPayload {
+        job_id,
+        resource_id,
+        status,
+    })
 }
 
-fn validate_failed_data(data: &serde_json::Value) -> Result<()> {
+fn parse_failed_payload(data: Value) -> Result<FailedPayload> {
     let object = data.as_object().ok_or_else(|| {
         ConduitError::invalid_webhook_payload("invalid webhook payload: data must be an object")
     })?;
-    let job_id = object
-        .get("jobId")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    if job_id.trim().is_empty() {
-        return Err(ConduitError::invalid_webhook_payload(
-            "webhook.data.jobId must be a non-empty string",
-        ));
-    }
-    if object.get("status").and_then(serde_json::Value::as_str) != Some("failed") {
-        return Err(ConduitError::invalid_webhook_payload(
-            "invalid webhook payload: status must be failed",
-        ));
-    }
     let error = object
         .get("error")
-        .and_then(serde_json::Value::as_object)
+        .and_then(Value::as_object)
         .ok_or_else(|| {
             ConduitError::invalid_webhook_payload(
                 "invalid webhook payload: error must be an object",
             )
         })?;
-    if error
-        .get("code")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .is_empty()
-    {
-        return Err(ConduitError::invalid_webhook_payload(
-            "webhook.data.error.code must be a non-empty string",
-        ));
+    Ok(FailedPayload {
+        job_id: required_value(object.get("jobId"), "webhook.data.jobId")?,
+        status: parse_webhook_status(object.get("status"), JobStatus::Failed, "failed")?,
+        error: WebhookFailure {
+            code: required_value(error.get("code"), "webhook.data.error.code")?,
+            message: required_value(error.get("message"), "webhook.data.error.message")?,
+        },
+    })
+}
+
+fn parse_webhook_status(
+    value: Option<&Value>,
+    expected: JobStatus,
+    expected_name: &str,
+) -> Result<JobStatus> {
+    let status = match value.and_then(Value::as_str) {
+        Some("succeeded") => JobStatus::Succeeded,
+        Some("failed") => JobStatus::Failed,
+        Some(other) => {
+            return Err(ConduitError::invalid_webhook_payload(format!(
+                "invalid webhook payload: unsupported status {other}"
+            )));
+        }
+        None => {
+            return Err(ConduitError::invalid_webhook_payload(format!(
+                "invalid webhook payload: status must be {expected_name}"
+            )));
+        }
+    };
+    if status != expected {
+        return Err(ConduitError::invalid_webhook_payload(format!(
+            "invalid webhook payload: status must be {expected_name}"
+        )));
     }
-    if error
-        .get("message")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .is_empty()
-    {
-        return Err(ConduitError::invalid_webhook_payload(
-            "webhook.data.error.message must be a non-empty string",
-        ));
+    Ok(status)
+}
+
+fn required_value(value: Option<&Value>, name: &str) -> Result<String> {
+    let value = value.and_then(Value::as_str).unwrap_or_default();
+    non_empty(value, name)
+}
+
+fn non_empty(value: &str, name: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ConduitError::invalid_webhook_payload(format!(
+            "{name} must be a non-empty string"
+        )));
     }
-    Ok(())
+    Ok(trimmed.to_string())
+}
+
+fn webhook_datetime(value: &str, name: &str) -> Result<OffsetDateTime> {
+    let value = non_empty(value, name)?;
+    OffsetDateTime::parse(&value, &Rfc3339).map_err(|error| {
+        ConduitError::invalid_webhook_payload(format!("{name} must be an ISO8601 string"))
+            .with_source(error)
+    })
 }

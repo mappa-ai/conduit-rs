@@ -1,17 +1,15 @@
 use conduit_rs::{
-    ClientOptions, Conduit, CreateMatchingRequest, CreateReportRequest, MatchingContext,
-    MatchingSubject, ReportOutput, ReportTemplate, Source, TargetSelector,
+    Conduit, MatchingContext, MatchingCreate, ReportCreate, ReportTemplate, Source, SubjectRef,
+    Target,
 };
 use std::time::Duration;
 
 fn test_client() -> Conduit {
-    Conduit::with_options(
-        "sk_test",
-        ClientOptions::new()
-            .base_url("http://127.0.0.1:9999")
-            .timeout(Duration::from_secs(1)),
-    )
-    .expect("client")
+    Conduit::builder("sk_test")
+        .base_url("http://127.0.0.1:9999")
+        .timeout(Duration::from_secs(1))
+        .build()
+        .expect("client")
 }
 
 #[test]
@@ -24,15 +22,12 @@ fn missing_api_key_fails() {
 async fn report_create_rejects_invalid_timerange_before_network() {
     let client = test_client();
     let error = client
-        .reports
-        .create(CreateReportRequest {
-            source: Source::media_id("med_123"),
-            output: ReportOutput::new(ReportTemplate::GeneralReport),
-            target: TargetSelector::time_range(None, None),
-            webhook: None,
-            idempotency_key: None,
-            request_id: None,
-        })
+        .reports()
+        .create(ReportCreate::new(
+            Source::media_id("med_123"),
+            ReportTemplate::GeneralReport,
+            Target::time_range(None, None),
+        ))
         .await
         .expect_err("invalid timerange should fail");
 
@@ -44,15 +39,12 @@ async fn report_create_rejects_invalid_timerange_before_network() {
 async fn matching_create_rejects_duplicate_entity_ids_before_network() {
     let client = test_client();
     let error = client
-        .matching
-        .create(CreateMatchingRequest {
-            context: MatchingContext::HiringTeamFit,
-            target: MatchingSubject::entity_id("ent_1"),
-            group: vec![MatchingSubject::entity_id("ent_1")],
-            webhook: None,
-            idempotency_key: None,
-            request_id: None,
-        })
+        .matching()
+        .create(MatchingCreate::new(
+            MatchingContext::HiringTeamFit,
+            SubjectRef::entity("ent_1"),
+            vec![SubjectRef::entity("ent_1")],
+        ))
         .await
         .expect_err("duplicate entity ids should fail");
 
@@ -64,7 +56,7 @@ async fn matching_create_rejects_duplicate_entity_ids_before_network() {
 async fn media_upload_rejects_media_id_source_before_network() {
     let client = test_client();
     let error = client
-        .primitives
+        .primitives()
         .media
         .upload(Source::media_id("med_123"), None, None)
         .await

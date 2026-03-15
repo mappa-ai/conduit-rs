@@ -1,5 +1,7 @@
 use crate::common::random_id;
-use crate::error::{ConduitError, Result};
+use crate::error::{
+    ConduitError, Result, is_retryable_api_error, is_transport_error, rate_limit_retry_after,
+};
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{Method, Url};
 use serde_json::Value;
@@ -265,20 +267,16 @@ fn parse_api_error(
 
 fn should_retry(error: &ConduitError) -> bool {
     match error {
-        ConduitError::RateLimit { .. } | ConduitError::Timeout { .. } => true,
-        ConduitError::Api { status, .. } => *status >= 500,
-        ConduitError::Base { code, .. } => code == "transport_error",
+        ConduitError::RateLimit(_) | ConduitError::Timeout(_) => true,
+        _ if is_retryable_api_error(error) => true,
+        _ if is_transport_error(error) => true,
         _ => false,
     }
 }
 
 fn retry_delay(error: &ConduitError, attempt: usize) -> Duration {
-    if let ConduitError::RateLimit {
-        retry_after: Some(retry_after),
-        ..
-    } = error
-    {
-        return *retry_after;
+    if let Some(retry_after) = rate_limit_retry_after(error) {
+        return retry_after;
     }
     let seconds = 2u64.pow(attempt.min(3) as u32);
     Duration::from_millis((seconds * 500).min(4_000))

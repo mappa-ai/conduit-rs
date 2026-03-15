@@ -2,8 +2,6 @@ use crate::error::{ConduitError, Result};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use reqwest::Url;
 use std::path::Path;
-use time::OffsetDateTime;
-use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
 
 pub(crate) fn require_non_empty(value: &str, name: &str) -> Result<String> {
@@ -11,16 +9,6 @@ pub(crate) fn require_non_empty(value: &str, name: &str) -> Result<String> {
     if trimmed.is_empty() {
         return Err(ConduitError::invalid_request(format!(
             "{name} must be a non-empty string"
-        )));
-    }
-    Ok(trimmed.to_string())
-}
-
-pub(crate) fn response_string(value: &str, name: &str) -> Result<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err(ConduitError::invalid_response(format!(
-            "invalid {name}: expected string"
         )));
     }
     Ok(trimmed.to_string())
@@ -116,16 +104,4 @@ pub(crate) fn file_name_from_url(url: &Url) -> String {
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
         .unwrap_or_else(|| "remote.bin".to_string())
-}
-
-pub(crate) fn is_terminal_status(status: &str) -> bool {
-    matches!(status, "succeeded" | "failed" | "canceled")
-}
-
-pub(crate) fn parse_iso8601(value: &str, name: &str) -> Result<()> {
-    OffsetDateTime::parse(value, &Rfc3339).map_err(|error| {
-        ConduitError::invalid_webhook_payload(format!("{name} must be an ISO8601 string"))
-            .with_source(error)
-    })?;
-    Ok(())
 }
