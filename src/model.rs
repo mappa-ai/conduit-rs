@@ -214,6 +214,10 @@ impl JobStage {
     }
 }
 
+fn parse_job_stage(value: &str) -> Option<JobStage> {
+    JobStage::parse(value, "job.stage").ok()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Event kind emitted by polling helpers.
 pub enum JobEventKind {
@@ -683,8 +687,7 @@ pub(crate) fn parse_job(payload: &[u8]) -> Result<Job> {
             .stage
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .map(|value| JobStage::parse(value, "job.stage"))
-            .transpose()?,
+            .and_then(parse_job_stage),
         progress: wire.progress,
         report_id: wire.report_id.filter(|value| !value.trim().is_empty()),
         matching_id: wire.matching_id.filter(|value| !value.trim().is_empty()),
@@ -731,8 +734,7 @@ pub(crate) fn parse_job_receipt(payload: &[u8]) -> Result<JobReceipt> {
             .stage
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .map(|value| JobStage::parse(value, "jobReceipt.stage"))
-            .transpose()?,
+            .and_then(parse_job_stage),
         estimated_wait_sec: wire.estimated_wait_sec,
     })
 }

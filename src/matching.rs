@@ -315,12 +315,17 @@ fn normalize_subject(subject: &SubjectRef) -> Result<Value> {
     let mut payload = Map::new();
     match subject {
         SubjectRef::Entity { entity_id } => {
+            payload.insert("type".to_string(), Value::String("entity_id".to_string()));
             payload.insert(
                 "entityId".to_string(),
                 Value::String(require_non_empty(entity_id, "subject.entityId")?),
             );
         }
         SubjectRef::Media { media_id, selector } => {
+            payload.insert(
+                "type".to_string(),
+                Value::String("media_target".to_string()),
+            );
             payload.insert(
                 "mediaId".to_string(),
                 Value::String(require_non_empty(media_id, "subject.mediaId")?),
