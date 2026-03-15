@@ -1,0 +1,28 @@
+[package]
+name = "conduit"
+version = "0.1.0"
+description = "Official Rust SDK for the Conduit API"
+homepage = "https://api-docs.mappa.ai"
+readme = "README.md"
+edition = "2024"
+
+[features]
+default = []
+e2e = []
+
+[dependencies]
+async-stream = "0.3.6"
+futures-util = "0.3.32"
+hex = "0.4.3"
+hmac = "0.12.1"
+http = "1.4.0"
+mime_guess = "2.0.5"
+percent-encoding = "2.3.2"
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.10.9"
+thiserror = "2.0.18"
+time = { version = "0.3.47", features = ["formatting", "parsing"] }
+tokio = { version = "1.50.0", features = ["fs", "macros", "rt-multi-thread", "time"] }
+uuid = { version = "1.22.0", features = ["v4"] }
