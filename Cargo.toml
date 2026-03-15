@@ -1,6 +1,6 @@
 [package]
-name = "conduit"
-version = "0.1.0"
+name = "conduit-rs"
+version = "0.1.2"
 description = "Official Rust SDK for the Conduit API"
 homepage = "https://api-docs.mappa.ai"
 readme = "README.md"

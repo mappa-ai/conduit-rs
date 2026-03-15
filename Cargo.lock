@@ -141,8 +141,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "conduit"
-version = "0.1.0"
+name = "conduit-rs"
+version = "0.1.2"
 dependencies = [
  "async-stream",
  "futures-util",

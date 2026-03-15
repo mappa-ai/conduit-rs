@@ -1,4 +1,4 @@
-use conduit::Conduit;
+use conduit_rs::Conduit;
 use hmac::{Hmac, Mac};
 use http::HeaderMap;
 use sha2::Sha256;

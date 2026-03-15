@@ -5,16 +5,16 @@ Official Rust SDK for the Conduit API.
 ## Install
 
 ```bash
-cargo add conduit
+cargo add conduit-rs
 ```
 
 ## Quickstart
 
 ```rust
-use conduit::{Conduit, CreateReportRequest, ReportOutput, ReportTemplate, Source, TargetSelector, Webhook};
+use conduit_rs::{Conduit, CreateReportRequest, ReportOutput, ReportTemplate, Source, TargetSelector, Webhook};
 
 #[tokio::main]
-async fn main() -> Result<(), conduit::ConduitError> {
+async fn main() -> Result<(), conduit_rs::ConduitError> {
     let client = Conduit::new("sk_...")?;
 
     let receipt = client
@@ -38,11 +38,11 @@ async fn main() -> Result<(), conduit::ConduitError> {
 Verify webhooks before parsing:
 
 ```rust
-use conduit::Conduit;
+use conduit_rs::Conduit;
 use http::HeaderMap;
 use std::time::Duration;
 
-fn handle_webhook(client: &Conduit, body: &[u8], headers: &HeaderMap, secret: &str) -> Result<(), conduit::ConduitError> {
+fn handle_webhook(client: &Conduit, body: &[u8], headers: &HeaderMap, secret: &str) -> Result<(), conduit_rs::ConduitError> {
     client
         .webhooks
         .verify_signature(body, headers, secret, Duration::from_secs(300))?;

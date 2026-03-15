@@ -1,4 +1,4 @@
-use conduit::{
+use conduit_rs::{
     ClientOptions, Conduit, CreateMatchingRequest, CreateReportRequest, MatchingContext,
     MatchingSubject, ReportOutput, ReportTemplate, Source, TargetSelector,
 };
