@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const DEFAULT_BASE_URL: &str = "https://api.mappa.ai";
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(3);
 const DEFAULT_MAX_RETRIES: usize = 2;
 
