@@ -398,6 +398,8 @@ pub struct MediaFile {
     pub created_at: OffsetDateTime,
     /// Content type recorded for the media.
     pub content_type: String,
+    /// Whether the media already has associated reports.
+    pub has_reports: bool,
     /// User-facing label.
     pub label: String,
     /// Processing status reported by the API.
@@ -625,6 +627,8 @@ struct MediaFileWire {
     created_at: String,
     #[serde(rename = "contentType")]
     content_type: String,
+    #[serde(rename = "hasReports")]
+    has_reports: bool,
     label: String,
     #[serde(rename = "processingStatus")]
     processing_status: String,
@@ -811,6 +815,7 @@ fn parse_media_file_wire(wire: MediaFileWire) -> Result<MediaFile> {
         media_id: response_string(&wire.media_id, "media.mediaId")?,
         created_at: response_datetime(&wire.created_at, "media.createdAt")?,
         content_type: response_string(&wire.content_type, "media.contentType")?,
+        has_reports: wire.has_reports,
         label: response_string(&wire.label, "media.label")?,
         processing_status: response_string(&wire.processing_status, "media.processingStatus")?,
         last_used_at: optional_datetime(wire.last_used_at, "media.lastUsedAt")?,
