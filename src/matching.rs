@@ -18,21 +18,21 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Stable matching contexts supported by the public API.
 pub enum MatchingContext {
-    /// Hiring team fit analysis.
-    HiringTeamFit,
+    /// Behavioral compatibility analysis.
+    BehavioralCompatibility,
 }
 
 impl MatchingContext {
     /// Returns the canonical API identifier for the context.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::HiringTeamFit => "hiring_team_fit",
+            Self::BehavioralCompatibility => "behavioral_compatibility",
         }
     }
 
     pub(crate) fn parse(value: &str, name: &str) -> Result<Self> {
         match value {
-            "hiring_team_fit" => Ok(Self::HiringTeamFit),
+            "behavioral_compatibility" => Ok(Self::BehavioralCompatibility),
             _ => Err(ConduitError::invalid_response(format!(
                 "invalid {name}: unsupported matching context"
             ))),

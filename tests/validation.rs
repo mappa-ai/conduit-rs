@@ -41,7 +41,7 @@ async fn matching_create_rejects_duplicate_entity_ids_before_network() {
     let error = client
         .matching()
         .create(MatchingCreate::new(
-            MatchingContext::HiringTeamFit,
+            MatchingContext::BehavioralCompatibility,
             SubjectRef::entity("ent_1"),
             vec![SubjectRef::entity("ent_1")],
         ))

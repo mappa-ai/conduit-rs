@@ -118,7 +118,7 @@ async fn create_matching(conduit: &Conduit) -> Result<(), conduit_rs::Error> {
     let receipt = conduit
         .matching()
         .create(MatchingCreate::new(
-            MatchingContext::HiringTeamFit,
+            MatchingContext::BehavioralCompatibility,
             SubjectRef::entity("ent_candidate"),
             vec![
                 SubjectRef::entity("ent_manager"),
