@@ -85,14 +85,13 @@ pub(crate) fn resolve_label(label: Option<&str>, file_name: &str, fallback: &str
 
 pub(crate) fn normalize_label(value: &str) -> String {
     let mut current = value.trim().to_string();
-    loop {
-        let Some((base, suffix)) = current.rsplit_once('.') else {
-            break;
-        };
-        if base.trim().is_empty() || suffix.trim().is_empty() {
+    while let Some((base, suffix)) = current.rsplit_once('.') {
+        let trimmed_base = base.trim();
+        let trimmed_suffix = suffix.trim();
+        if trimmed_base.is_empty() || trimmed_suffix.is_empty() {
             break;
         }
-        current = base.trim().to_string();
+        current = trimmed_base.to_string();
     }
     current.trim().to_string()
 }

@@ -2,6 +2,7 @@ use crate::common::parse_base_url;
 use crate::error::{ConduitError, Result};
 use crate::matching::MatchingResource;
 use crate::primitives::{EntitiesResource, JobsResource, MediaResource, PrimitivesResource};
+use crate::psychometrics::PsychometricsResource;
 use crate::reports::ReportsResource;
 use crate::transport::Transport;
 use crate::webhooks::WebhooksResource;
@@ -116,11 +117,13 @@ impl ConduitBuilder {
         let media = MediaResource::new(transport.clone(), self.timeout, self.max_source_bytes);
         let entities = EntitiesResource::new(transport.clone());
         let reports = ReportsResource::new(transport.clone(), jobs.clone(), media.clone());
-        let matching = MatchingResource::new(transport, jobs.clone());
+        let matching = MatchingResource::new(transport.clone(), jobs.clone());
+        let psychometrics = PsychometricsResource::new(transport, media.clone());
 
         Ok(Conduit {
             reports,
             matching,
+            psychometrics,
             primitives: PrimitivesResource {
                 entities,
                 media,
@@ -140,11 +143,13 @@ impl Default for ConduitBuilder {
 /// Main entry point for the Conduit API.
 ///
 /// The client is intentionally small and organized by resource group. Start with [`Self::reports`]
-/// for report generation, then branch into matching, webhooks, or primitives as needed.
+/// for report generation, then branch into psychometrics, matching, webhooks, or primitives as
+/// needed.
 #[derive(Debug, Clone)]
 pub struct Conduit {
     reports: ReportsResource,
     matching: MatchingResource,
+    psychometrics: PsychometricsResource,
     primitives: PrimitivesResource,
     webhooks: WebhooksResource,
 }
@@ -165,6 +170,11 @@ impl Conduit {
     /// This is the primary onboarding surface for the SDK.
     pub fn reports(&self) -> &ReportsResource {
         &self.reports
+    }
+
+    /// Returns the psychometrics resource group.
+    pub fn psychometrics(&self) -> &PsychometricsResource {
+        &self.psychometrics
     }
 
     /// Returns the matching resource group.

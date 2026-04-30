@@ -1,6 +1,6 @@
 [package]
 name = "conduit-rs"
-version = "0.2.2"
+version = "0.3.2"
 description = "Official Rust SDK for the Conduit API"
 homepage = "https://docs.conduit.mappa.ai"
 repository = "https://github.com/mappa-ai/conduit-rs"

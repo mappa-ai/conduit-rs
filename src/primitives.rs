@@ -199,11 +199,16 @@ pub struct MediaResource {
 }
 
 #[derive(Debug, Clone)]
-struct UploadMaterialization {
-    payload: Vec<u8>,
-    file_name: String,
-    label: String,
-    content_type: Option<String>,
+/// Prepared upload payload shared by upload-capable workflows.
+pub(crate) struct UploadMaterialization {
+    /// Raw upload bytes.
+    pub(crate) payload: Vec<u8>,
+    /// File name reported to the API.
+    pub(crate) file_name: String,
+    /// User-facing label attached to the upload.
+    pub(crate) label: String,
+    /// Optional content type inferred for the upload.
+    pub(crate) content_type: Option<String>,
 }
 
 impl JobsResource {
@@ -607,7 +612,8 @@ impl MediaResource {
         }
     }
 
-    async fn materialize_source(&self, source: Source) -> Result<UploadMaterialization> {
+    /// Materializes an upload-capable source into raw bytes and metadata.
+    pub(crate) async fn materialize_source(&self, source: Source) -> Result<UploadMaterialization> {
         match source {
             Source::MediaId { .. } => Err(ConduitError::invalid_source(
                 "upload source cannot use mediaId",

@@ -6,9 +6,10 @@
 
 This repository is the public mirror, documentation surface, and issue tracker for the Conduit Rust SDK.
 
-Conduit is a behavioral intelligence API with two primary workflows:
+Conduit is a behavioral intelligence API with three stable workflows:
 
 - `reports` turns a recording into a structured behavioral analysis for one selected speaker.
+- `psychometrics` returns the direct psychometric trait payload for one selected speaker.
 - `matching` evaluates one target subject against a group in a closed interpretation context.
 
 ## Install
@@ -42,6 +43,7 @@ Notes:
 The client is intentionally small:
 
 - `conduit.reports()` is the main onboarding surface.
+- `conduit.psychometrics()` is the stable sync trait-map workflow.
 - `conduit.matching()` is the stable matching workflow.
 - `conduit.webhooks()` verifies and parses webhook deliveries.
 - `conduit.primitives()` exposes advanced low-level resources for `media`, `jobs`, and `entities`.
@@ -108,6 +110,31 @@ async fn handle_webhook(
     Ok(())
 }
 ```
+
+## Quickstart: Psychometrics
+
+```rust
+use conduit_rs::{Conduit, PsychometricsCreate, PsychometricsSource, PsychometricsTarget};
+
+async fn create_psychometrics(conduit: &Conduit) -> Result<(), conduit_rs::Error> {
+    let result = conduit
+        .psychometrics()
+        .create(PsychometricsCreate::new(
+            PsychometricsSource::path("./call.wav"),
+            PsychometricsTarget::hint("the candidate"),
+        ))
+        .await?;
+
+    println!("analysis={} conscientiousness={}", result.analysis_id, result.psychometrics["conscientiousness"]);
+    Ok(())
+}
+```
+
+Stable psychometrics constraints:
+
+- `PsychometricsSource` supports `file(...)`, `url(...)`, and `path(...)`
+- `PsychometricsTarget` supports `dominant()` and `hint(...)`
+- `psychometrics().get(...)` fetches a previously completed analysis by `analysis_id`
 
 ## Quickstart: Matching
 
