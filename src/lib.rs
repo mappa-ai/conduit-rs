@@ -59,8 +59,7 @@ pub use primitives::{
 };
 /// Psychometrics workflow request and response types.
 pub use psychometrics::{
-    PsychometricsConfidence, PsychometricsCreate, PsychometricsModelInfo, PsychometricsQuality,
-    PsychometricsResource, PsychometricsResult, PsychometricsSelectedSpeaker, PsychometricsSource,
+    PsychometricsCreate, PsychometricsResource, PsychometricsResult, PsychometricsSource,
     PsychometricsTarget, PsychometricsTargetStrategy,
 };
 /// Report workflow request, receipt, and target configuration types.

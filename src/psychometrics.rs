@@ -28,16 +28,6 @@ impl PsychometricsTargetStrategy {
             Self::MagicHint => "magic_hint",
         }
     }
-
-    fn parse(value: &str, name: &str) -> Result<Self> {
-        match value {
-            "dominant" => Ok(Self::Dominant),
-            "magic_hint" => Ok(Self::MagicHint),
-            _ => Err(ConduitError::invalid_response(format!(
-                "invalid {name}: expected dominant or magic_hint"
-            ))),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -217,68 +207,16 @@ impl PsychometricsCreate {
 }
 
 #[derive(Debug, Clone)]
-/// Confidence metadata returned by the psychometrics endpoint.
-pub struct PsychometricsConfidence {
-    /// Overall confidence score between 0 and 1.
-    pub overall: f64,
-    /// Heuristic source used to compute confidence.
-    pub source: String,
-}
-
-#[derive(Debug, Clone)]
-/// Quality metadata returned by the psychometrics endpoint.
-pub struct PsychometricsQuality {
-    /// Number of scored target segments.
-    pub segment_count: i64,
-    /// Signal band: low, medium, or high.
-    pub signal: String,
-    /// Full source duration in seconds.
-    pub source_audio_duration_seconds: f64,
-    /// Proportion of source audio attributed to the selected speaker.
-    pub speaker_coverage_ratio: f64,
-    /// Scored target duration in seconds.
-    pub target_audio_duration_seconds: f64,
-    /// Number of scored target utterances.
-    pub target_utterance_count: i64,
-}
-
-#[derive(Debug, Clone)]
-/// Resolved speaker selection returned by the psychometrics endpoint.
-pub struct PsychometricsSelectedSpeaker {
-    /// Resolved zero-based speaker index.
-    pub speaker_index: i64,
-    /// Strategy that resolved the speaker.
-    pub strategy: PsychometricsTargetStrategy,
-}
-
-#[derive(Debug, Clone)]
-/// Model metadata returned by the psychometrics endpoint.
-pub struct PsychometricsModelInfo {
-    /// Backend model metadata.
-    pub metadata: std::collections::HashMap<String, String>,
-    /// Backend model version when reported.
-    pub version: Option<String>,
-}
-
-#[derive(Debug, Clone)]
 /// Completed psychometrics analysis.
 pub struct PsychometricsResult {
     /// Stable analysis identifier.
     pub analysis_id: String,
-    /// Confidence metadata.
-    pub confidence: PsychometricsConfidence,
     /// Analysis creation timestamp.
     pub created_at: OffsetDateTime,
     /// Analysis expiry timestamp.
     pub expires_at: OffsetDateTime,
-    /// Model metadata.
-    pub model: PsychometricsModelInfo,
     /// Trait scores keyed by stable trait identifier.
     pub psychometrics: std::collections::HashMap<String, f64>,
-    /// Quality metadata.
-    pub quality: PsychometricsQuality,
-    /// Resolved speaker selection.
-    pub selected_speaker: PsychometricsSelectedSpeaker,
 }
 
 #[derive(Debug, Clone)]
@@ -355,91 +293,20 @@ impl PsychometricsResource {
 struct PsychometricsResultWire {
     #[serde(rename = "analysisId")]
     analysis_id: String,
-    confidence: PsychometricsConfidenceWire,
     #[serde(rename = "createdAt")]
     created_at: String,
     #[serde(rename = "expiresAt")]
     expires_at: String,
-    model: PsychometricsModelInfoWire,
     psychometrics: std::collections::HashMap<String, f64>,
-    quality: PsychometricsQualityWire,
-    #[serde(rename = "selectedSpeaker")]
-    selected_speaker: PsychometricsSelectedSpeakerWire,
-}
-
-#[derive(Debug, Deserialize)]
-struct PsychometricsConfidenceWire {
-    overall: f64,
-    source: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct PsychometricsQualityWire {
-    #[serde(rename = "segmentCount")]
-    segment_count: i64,
-    signal: String,
-    #[serde(rename = "sourceAudioDurationSeconds")]
-    source_audio_duration_seconds: f64,
-    #[serde(rename = "speakerCoverageRatio")]
-    speaker_coverage_ratio: f64,
-    #[serde(rename = "targetAudioDurationSeconds")]
-    target_audio_duration_seconds: f64,
-    #[serde(rename = "targetUtteranceCount")]
-    target_utterance_count: i64,
-}
-
-#[derive(Debug, Deserialize)]
-struct PsychometricsSelectedSpeakerWire {
-    #[serde(rename = "speakerIndex")]
-    speaker_index: i64,
-    strategy: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct PsychometricsModelInfoWire {
-    metadata: std::collections::HashMap<String, String>,
-    version: Option<String>,
 }
 
 fn parse_psychometrics_result(payload: &[u8]) -> Result<PsychometricsResult> {
     let wire: PsychometricsResultWire = decode_json(payload)?;
-    let confidence_source =
-        response_string(&wire.confidence.source, "psychometrics.confidence.source")?;
-    if confidence_source != "signal_heuristic" {
-        return Err(ConduitError::invalid_response(
-            "invalid psychometrics.confidence.source: expected signal_heuristic",
-        ));
-    }
-    let quality_signal = response_string(&wire.quality.signal, "psychometrics.quality.signal")?;
-    validate_quality_signal(&quality_signal, "psychometrics.quality.signal")?;
     Ok(PsychometricsResult {
         analysis_id: response_string(&wire.analysis_id, "psychometrics.analysisId")?,
-        confidence: PsychometricsConfidence {
-            overall: wire.confidence.overall,
-            source: confidence_source,
-        },
         created_at: response_datetime(&wire.created_at, "psychometrics.createdAt")?,
         expires_at: response_datetime(&wire.expires_at, "psychometrics.expiresAt")?,
-        model: PsychometricsModelInfo {
-            metadata: wire.model.metadata,
-            version: wire.model.version.filter(|value| !value.trim().is_empty()),
-        },
         psychometrics: wire.psychometrics,
-        quality: PsychometricsQuality {
-            segment_count: wire.quality.segment_count,
-            signal: quality_signal,
-            source_audio_duration_seconds: wire.quality.source_audio_duration_seconds,
-            speaker_coverage_ratio: wire.quality.speaker_coverage_ratio,
-            target_audio_duration_seconds: wire.quality.target_audio_duration_seconds,
-            target_utterance_count: wire.quality.target_utterance_count,
-        },
-        selected_speaker: PsychometricsSelectedSpeaker {
-            speaker_index: wire.selected_speaker.speaker_index,
-            strategy: PsychometricsTargetStrategy::parse(
-                &wire.selected_speaker.strategy,
-                "psychometrics.selectedSpeaker.strategy",
-            )?,
-        },
     })
 }
 
@@ -463,13 +330,4 @@ fn response_string(value: &str, name: &str) -> Result<String> {
         )));
     }
     Ok(value.to_string())
-}
-
-fn validate_quality_signal(value: &str, name: &str) -> Result<()> {
-    match value {
-        "low" | "medium" | "high" => Ok(()),
-        _ => Err(ConduitError::invalid_response(format!(
-            "invalid {name}: expected low, medium, or high"
-        ))),
-    }
 }
